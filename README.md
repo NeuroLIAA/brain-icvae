@@ -1,5 +1,5 @@
 # Age-invariant brain MRI representations
-This repository contains code and resources for the paper _Alzheimer’s Progression Brain Phenotypes are Age-dependent_ (2026) by Fermin Travi, Anushree Mehta, Eduardo Castro, Hongyang Li, Jenna Reinen, Amit Dhurandhar, Pablo Meyer Rojas, Diego Fernández Slezak, Guillermo A. Cecchi, and Pablo Polosecki.
+This repository contains code and resources for the paper _Alzheimer’s Disease Brain Phenotypes are Age-dependent_ (2026) by Fermin Travi, Anushree Mehta, Eduardo Castro, Hongyang Li, Jenna Reinen, Amit Dhurandhar, Pablo Meyer Rojas, Diego Fernández Slezak, Guillermo A. Cecchi, and Pablo Polosecki.
 
 ![Age-invariant brain MRI architecture](figures/age_invariant_vae_diagram.png#gh-light-mode-only)
 ![Age-invariant brain MRI architecture - dark mode](figures/age_invariant_vae_diagram_dark.png#gh-dark-mode-only)
