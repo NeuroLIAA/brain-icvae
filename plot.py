@@ -1,6 +1,5 @@
 from pathlib import Path
 from scripts.constants import EVALUATION_PATH
-from scipy.interpolate import interp1d
 from pandas import DataFrame
 import seaborn as sns
 import matplotlib.pyplot as plt
