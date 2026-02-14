@@ -6,7 +6,7 @@ import seaborn as sns
 import matplotlib.pyplot as plt
 import numpy as np
 import argparse
-from sklearn.metrics import precision_recall_curve, roc_auc_score, average_precision_score
+from sklearn.metrics import roc_auc_score
 from scripts.utils import load_predictions, get_age_windows, compute_metrics, metrics_to_df, bootstrap_dist_significance
 
 
@@ -19,11 +19,8 @@ def plot(results_path, cfgs, target_labels, bars, age_windows):
         plot_bar_plots(metrics, evaluated_cfgs, results_path)
     else:
         roc_curves = build_roc_curves(labels_predictions, target_labels, evaluated_cfgs, age_windows)
-        pr_curves = build_precision_recall_curves(labels_predictions, target_labels, evaluated_cfgs, age_windows)
         plot_data(roc_curves, evaluated_cfgs, '', 'ROC-AUC', (0.45, 1.06), False, 25,
                   results_path / 'roc_aucs.png', age_windows_ranges)
-        plot_data(pr_curves, evaluated_cfgs, '', 'PR-AUC', (0.45, 1.06), False, 25,
-                  results_path / 'pr_aucs.png', age_windows_ranges)
 
 
 def plot_bar_plots(metrics, evaluated_cfgs, results_path):
@@ -252,23 +249,6 @@ def build_roc_curves(labels_results, labels, models, age_windows):
     return roc_curves
 
 
-def build_precision_recall_curves(labels_results, labels, models, age_windows):
-    pr_curves = {label: {} for label in labels}
-    common_recall = np.linspace(0, 1, 100)
-    print('**********PR-AUCs values**********')
-    for label in labels:
-        print(f'{label.upper()}:')
-        for model in models:
-            model_preds = labels_results[label][model]
-            if age_windows > 0:
-                for window in range(age_windows):
-                    window_data = model_preds[model_preds['age_window'] == window]
-                    mean_pr(window_data, common_recall, label, f'{model}_window_{window}', pr_curves)
-            else:
-                mean_pr(model_preds, common_recall, label, model, pr_curves)
-    return pr_curves
-
-
 def mean_roc(data, thresholds, label, model_name, roc_curves):
     all_fpr, all_tpr, all_aucs = [], [], []
     run_numbers = [run.removeprefix('pred_') for run in data.columns if run.startswith('pred_')]
@@ -287,30 +267,6 @@ def mean_roc(data, thresholds, label, model_name, roc_curves):
     std_tpr = np.std(all_tpr, axis=0)
     roc_curves[label][model_name] = {'mean': list(zip(mean_fpr, mean_tpr)), 'std': list(zip(mean_fpr, std_tpr)),
                                      'aucs': all_aucs}
-    print(f'{model_name} {label} AUC: {np.median(all_aucs):.4f} '
-          f'IQR: {np.percentile(all_aucs, 75) - np.percentile(all_aucs, 25):.4f}')
-
-
-def mean_pr(data, common_recall, label, model_name, pr_curves):
-    all_precision, all_recall, all_aucs = [], [], []
-    run_numbers = [run.removeprefix('pred_') for run in data.columns if run.startswith('pred_')]
-    for run_number in run_numbers:
-        preds, labels = data[f'pred_{run_number}'].values, data[f'label_{run_number}'].values
-        precision, recall, _ = precision_recall_curve(labels, preds)
-        all_precision.append(precision)
-        all_recall.append(recall)
-        all_aucs.append(average_precision_score(labels, preds))
-    interpolated_precisions = []
-    for precision, recall in zip(all_precision, all_recall):
-        interp_func = interp1d(recall, precision, bounds_error=False, fill_value=(0, 0))
-        interp_prec = interp_func(common_recall)
-        interpolated_precisions.append(interp_prec)
-    interpolated_precisions = np.array(interpolated_precisions)
-    mean_precision = np.mean(interpolated_precisions, axis=0)
-    std_error_precision = np.std(interpolated_precisions, axis=0)
-    pr_curves[label][model_name] = {'mean': list(zip(common_recall, mean_precision)),
-                                    'std': list(zip(common_recall, std_error_precision)),
-                                    'aucs': all_aucs}
     print(f'{model_name} {label} AUC: {np.median(all_aucs):.4f} '
           f'IQR: {np.percentile(all_aucs, 75) - np.percentile(all_aucs, 25):.4f}')
 
@@ -336,7 +292,7 @@ if __name__ == '__main__':
     parser.add_argument('-d', '--dataset', type=str, default='diseased', help='dataset where to look for results')
     parser.add_argument('-t', '--targets', type=str, nargs='+', default=['dvh', 'dvp', 'hvp'],
                         help='target labels to plot')
-    parser.add_argument('-b', '--bars', action='store_true', help='plot bars instead of curves')
+    parser.add_argument('-b', '--bars', action='store_true', help='plot bar plots')
     parser.add_argument('-c', '--cfgs', nargs='+', type=str, default=['age_invariant', 'age_agnostic', 'age_aware'],
                         help='configurations to plot')
     parser.add_argument('-w', '--age_windows', type=int, default=0,
