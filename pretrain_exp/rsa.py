@@ -15,6 +15,9 @@ from torchvision.models.feature_extraction import create_feature_extractor
 from torch import cat, no_grad
 import seaborn as sns
 import pickle
+from concurrent.futures import ProcessPoolExecutor
+from functools import partial
+import os
 
 
 def plot_maps(model_features, model_name, class_labels, layers=None, colorbar=False):
@@ -128,39 +131,82 @@ def compare_rdms(rdms_dict1, rdms_dict2, layers_dict):
         layers_dict[layer].append(correlation)
 
 
-def compare_models(tasks, models, layers, rdms_path, n_iters, random_state):
+def _correlate_rdms(rdms_dict1, rdms_dict2, layers):
+    """Compute per-layer correlations between two RDM dicts (non-mutating)."""
+    correlations = {}
+    for layer in layers:
+        rdm1 = rdms_dict1[layer]
+        rdm2 = rdms_dict2[layer]
+        mask = triu(ones_like(rdm1, dtype=bool), k=1)
+        correlations[layer] = corrcoef(rdm1[mask], rdm2[mask])[0, 1]
+    return correlations
+
+
+def _process_seed(seed, base_model_rdm, ft_rdm, pretrained_rdm, compare_with_pretrained, dataset_size, layers):
+    """Process a single bootstrap seed: resample RDMs and compute correlations."""
+    indices_seed = random_indices(dataset_size, seed)
+    resampled_base_model_rdm = resample_rdm(base_model_rdm, indices_seed)
+
+    result = {}
+    if compare_with_pretrained:
+        resampled_pt_rdm = resample_rdm(pretrained_rdm, indices_seed)
+        result['pretrained'] = _correlate_rdms(resampled_base_model_rdm, resampled_pt_rdm, layers)
+
+    resampled_ft_rdm = resample_rdm(ft_rdm, indices_seed)
+    result['tl'] = _correlate_rdms(resampled_base_model_rdm, resampled_ft_rdm, layers)
+
+    return result
+
+
+def compare_models(tasks, models, layers, rdms_path, n_iters, random_state, n_jobs=None):
+    if n_jobs is None:
+        n_jobs = os.cpu_count()
     models_comparison = {}
     training_modes = ['pretrained', 'tl']
     other_models = models + ['baseline']
     random_seeds = [random_state + i for i in range(n_iters)]
-    for task in tasks:
-        task_rdms, task_df = load_task_rdms(rdms_path, task)
-        models_comparison[task] = {}
-        for training_mode in training_modes:
-            for model in models:
-                if training_mode == 'pretrained' and model == 'none':
-                    continue
-                model_rdms = task_rdms[model]
-                base_model_rdm = model_rdms[training_mode]
-                models_comparison[task][f'{model}_{training_mode}'] = {}
-                for other_model in other_models:
-                    compare_with_pretrained = training_mode == 'pretrained' and other_model != 'baseline'
-                    other_model_rdms = task_rdms[other_model]
-                    training_mode_dct = models_comparison[task][f'{model}_{training_mode}']
-                    if compare_with_pretrained:
-                        training_mode_dct[f'{other_model}_pretrained'] = {layer: [] for layer in layers}
-                        pretrained_rdm = other_model_rdms[training_modes[0]]
-                    training_mode_dct[f'{other_model}_tl'] = {layer: [] for layer in layers}
-                    ft_rdm = other_model_rdms[training_modes[1]] if other_model != 'baseline' else other_model_rdms
-                    for seed in random_seeds:
-                        indices_seed = random_indices(len(task_df), seed)
-                        resampled_base_model_rdm = resample_rdm(base_model_rdm, indices_seed)
+    chunksize = max([1, n_iters // n_jobs])
+
+    with ProcessPoolExecutor(max_workers=n_jobs) as executor:
+        for task in tasks:
+            task_rdms, task_df = load_task_rdms(rdms_path, task)
+            models_comparison[task] = {}
+            for training_mode in training_modes:
+                for model in models:
+                    if training_mode == 'pretrained' and model == 'none':
+                        continue
+                    model_rdms = task_rdms[model]
+                    base_model_rdm = model_rdms[training_mode]
+                    models_comparison[task][f'{model}_{training_mode}'] = {}
+                    for other_model in other_models:
+                        compare_with_pretrained = training_mode == 'pretrained' and other_model != 'baseline'
+                        other_model_rdms = task_rdms[other_model]
+                        training_mode_dct = models_comparison[task][f'{model}_{training_mode}']
                         if compare_with_pretrained:
-                            resampled_pt_rdm = resample_rdm(pretrained_rdm, indices_seed)
-                            compare_rdms(resampled_base_model_rdm, resampled_pt_rdm,
-                                         training_mode_dct[f'{other_model}_pretrained'])
-                        resampled_ft_rdm = resample_rdm(ft_rdm, indices_seed)
-                        compare_rdms(resampled_base_model_rdm, resampled_ft_rdm, training_mode_dct[f'{other_model}_tl'])
+                            training_mode_dct[f'{other_model}_pretrained'] = {layer: [] for layer in layers}
+                            pretrained_rdm = other_model_rdms[training_modes[0]]
+                        else:
+                            pretrained_rdm = None
+                        training_mode_dct[f'{other_model}_tl'] = {layer: [] for layer in layers}
+                        ft_rdm = other_model_rdms[training_modes[1]] if other_model != 'baseline' else other_model_rdms
+
+                        process_fn = partial(
+                            _process_seed,
+                            base_model_rdm=base_model_rdm,
+                            ft_rdm=ft_rdm,
+                            pretrained_rdm=pretrained_rdm,
+                            compare_with_pretrained=compare_with_pretrained,
+                            dataset_size=len(task_df),
+                            layers=layers,
+                        )
+                        results = list(executor.map(process_fn, random_seeds, chunksize=chunksize))
+
+                        for result in results:
+                            if compare_with_pretrained and 'pretrained' in result:
+                                for layer, corr in result['pretrained'].items():
+                                    training_mode_dct[f'{other_model}_pretrained'][layer].append(corr)
+                            for layer, corr in result['tl'].items():
+                                training_mode_dct[f'{other_model}_tl'][layer].append(corr)
 
     return models_comparison
 
