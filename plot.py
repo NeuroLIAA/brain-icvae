@@ -91,8 +91,8 @@ def plot_bar_plots(metrics, evaluated_cfgs, results_path):
                labels=evaluated_cfgs, loc='upper center', bbox_to_anchor=(0.5, 0.05), ncol=ncols,
                fontsize='large')
     fig.savefig(results_path / 'bar_plots.png', format='png', bbox_inches='tight', transparent=True, dpi=150)
-    plt.subplots_adjust(wspace=0.8)
-    plt.show()
+    print(f'Saved bar plots to {results_path / "bar_plots.png"}')
+    return fig
 
 
 def plot_data(data, evaluated_cfgs, xlabel, ylabel, ylim, identity_line, fontsize, filename, age_windows_ranges):
@@ -123,6 +123,7 @@ def plot_data(data, evaluated_cfgs, xlabel, ylabel, ylim, identity_line, fontsiz
             configure_axes(axs[i], xlabel, ylabel, ylim, identity_line, fontsize, label, i == 0)
     if not has_windows:
         show_plot(fig, (handles, evaluated_cfgs), fontsize, filename)
+    return fig
 
 
 def plot_violin(data, results_label, ax, colors):
@@ -229,7 +230,7 @@ def show_plot(fig, handles_and_labels, fontsize, filename):
     fig.legend(handles, labels, loc='upper center', bbox_to_anchor=(0.5, -0.00),
                ncol=len(labels), fontsize=fontsize)
     plt.savefig(filename, format='png', bbox_inches='tight', dpi=150)
-    plt.show()
+    print(f'Saved plot to {filename}')
 
 
 def build_roc_curves(labels_results, labels, models, age_windows):

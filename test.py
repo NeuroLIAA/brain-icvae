@@ -11,9 +11,9 @@ from scripts.utils import (load_yaml, reconstruction_comparison_grid, init_embed
 from lightning.pytorch import seed_everything
 from models.utils import get_latent_representation
 from tqdm import tqdm
-from numpy import array, random, exp
-from pandas import DataFrame, cut
-from seaborn import scatterplot, kdeplot, color_palette, set_style, jointplot
+from numpy import array, random
+from pandas import DataFrame
+from seaborn import scatterplot, color_palette, set_style, jointplot
 from PIL import ImageDraw, ImageFont
 import matplotlib.pyplot as plt
 from torch import cat, device as dev, cuda
@@ -220,6 +220,7 @@ def plot_embeddings(subjects_df, method, label, save_path, color_by=None, annota
     plt.savefig(filename, dpi=300, transparent=True, bbox_inches='tight')
     plt.show()
     print(f'Figure saved at {filename}')
+    return plt.gcf()
 
 
 if __name__ == '__main__':
