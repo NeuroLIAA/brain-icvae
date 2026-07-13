@@ -33,10 +33,7 @@ def parse_task_name(task):
 
 
 def plot_model_comparisons(comparisons_dict, model_type, layers='all', x_label='Layers', group_by='layer', legend=True, title=None,
-                           fig_size=(10, 8), only_baseline=False):
-    """
-    Plot correlation comparisons between models using strip plots with confidence intervals.
-    """
+                           fig_size=(10, 8), only_baseline=False, colors=None):
     models = [key for key in comparisons_dict.keys() if key.endswith(f'_{model_type}')]
     if model_type == 'tl' and only_baseline:
         models += [f'baseline_{model_type}']
@@ -44,24 +41,24 @@ def plot_model_comparisons(comparisons_dict, model_type, layers='all', x_label='
     else:
         model_pairs = list(combinations(models, 2))
     model_pairs = sorted(model_pairs, key=lambda x: ('none' in x[0].lower(), 'none' in x[1].lower(), x[0], x[1]))
-
+    
     if layers == 'all':
         first_comparison = next(iter(comparisons_dict.values()))
         first_layer_dict = next(iter(first_comparison.values()))
         layers = list(first_layer_dict.keys())
     if not isinstance(layers, list):
         raise ValueError("Layers should be a list of layer names or 'all' to use all available layers.")
-
+    
     data_rows = []
     for layer in layers:
-        for model1, model2 in model_pairs:
+        for model1, model2 in model_pairs:            
             if model1 in comparisons_dict and model2 in comparisons_dict[model1]:
                 correlations = comparisons_dict[model1][model2][layer]
             elif model2 in comparisons_dict and model1 in comparisons_dict[model2]:
                 correlations = comparisons_dict[model2][model1][layer]
             else:
                 continue
-
+            
             comparison = f"{base_name(model1)} vs {base_name(model2)}"
             if 'none' in model1.lower() or 'none' in model2.lower():
                 group = 'non-pretrained'
@@ -76,60 +73,43 @@ def plot_model_comparisons(comparisons_dict, model_type, layers='all', x_label='
                     'correlation': corr,
                     'group': group
                 })
-
+    
     df = pd.DataFrame(data_rows)
-    color_map = sns.color_palette("deep", n_colors=len(model_pairs))
-    sns.set_style('white')
+    if colors:
+        color_map = colors
+    else:
+        color_map = sns.color_palette("Set2")
+    sns.set_style('whitegrid')
+    plt.rcParams['font.family'] = 'Roboto'
     fig = plt.figure(figsize=fig_size)
-
+    
     if group_by == 'layer':
         x = 'layer'
     else:
         x = 'group'
 
-    ax = sns.boxplot(data=df, x=x, y='correlation', hue='comparison', linewidth=1.5,
-                     palette=color_map, fliersize=0.0, legend=legend)
-    sns.stripplot(data=df, x=x, y='correlation', hue='comparison', alpha=0.4, size=4,
-                  jitter=True, palette=color_map, dodge=True, ax=ax, legend=legend)
+    ax = sns.violinplot(data=df, x=x, y='correlation', hue='comparison', palette=color_map, legend=legend, cut=0, alpha=1.0,
+                        density_norm='width', width=0.8, bw_adjust=2)
 
-    ax.set_xlabel(x_label, fontsize=15)
-    ax.set_ylabel('Correlation Values', fontsize=15)
     if title:
         ax.set_title(title, fontsize=16)
-    sns.despine(ax=ax, left=True)
-
-    plt.yticks(list(np.arange(0.75, 1.0, 0.1)) + [1.0], fontsize=10)
+    
+    min_value = round(df['correlation'].min() - 0.05, 1)
+    plt.yticks(list(np.arange(min_value, 1.0, 0.1)) + [1.0])
+    # yticks = list(np.arange(0.0, 0.25, 0.1))
+    # plt.yticks(yticks)
+    # ax.set_ylim(top=max(yticks))
 
     if legend:
         handles, labels = ax.get_legend_handles_labels()
         n_comparisons = len(model_pairs)
         ax.legend(handles[:n_comparisons], labels[:n_comparisons], ncol=n_comparisons,
-                  title='Comparisons', loc='lower center')
-
-    fig.patch.set_alpha(0.0)
-    plt.tight_layout()
-    return fig
-
-
-def plot_representational_shifts(representational_shifts):
-    sns.set_style("whitegrid")
-    models = [m.lower() for m in representational_shifts.keys()]
-    tasks = list(next(iter(representational_shifts.values())).keys())
-    colors = sns.color_palette(n_colors=len(models))
-
-    fig, ax = plt.subplots(figsize=(5, 4))
-    x = np.arange(len(tasks))
-
-    for i, model in enumerate(models):
-        y = [representational_shifts[model][task][0] for task in tasks]
-        yerr = [representational_shifts[model][task][1] for task in tasks]
-        model_label = f'{model.capitalize()} finetuned' if model != 'bmi' else 'BMI finetuned'
-        ax.errorbar(x, y, yerr=yerr, elinewidth=4, fmt='o', color=colors[i], label=model_label, capsize=5, markersize=6, alpha=0.8)
-
-    ax.set_ylim(bottom=0.0)
-    ax.set_xticks(x)
-    ax.set_xticklabels([parse_task_name(task) for task in tasks], fontsize=10)
-    ax.set_ylabel('Distance to pretrained representation', fontsize=10)
+                title='Comparisons', loc='lower center', # bbox_to_anchor=(1.05, 1)
+                )
+        ax.set_ylim(bottom=0.0)
+    ax.set_xlabel(x_label, fontsize=11)
+    ax.set_ylabel('Correlation distance', fontsize=11)
+    ax.tick_params(axis='both', which='major', labelsize=13)
     ax.spines['top'].set_color('black')
     ax.spines['right'].set_color('black')
     ax.spines['bottom'].set_color('black')
@@ -138,7 +118,57 @@ def plot_representational_shifts(representational_shifts):
     ax.spines['right'].set_linewidth(.8)
     ax.spines['bottom'].set_linewidth(.8)
     ax.spines['left'].set_linewidth(.8)
-    ax.legend(title='Models', loc='lower right')
+    if legend:
+        ax.legend(title='Models')
+    fig.patch.set_alpha(0.0)
+    ax.grid(True, alpha=0.3)
+    plt.tight_layout()
+    plt.show()
+    return fig
+
+
+def plot_representational_shifts(representational_shifts, legend=False):
+    sns.set_style("whitegrid")
+    plt.rcParams['font.family'] = 'Roboto'
+    models = [m.lower() for m in representational_shifts.keys()]
+    tasks = list(next(iter(representational_shifts.values())).keys())
+    colors = sns.color_palette('deep', n_colors=len(models))
+
+    # Build long-form DataFrame for seaborn
+    plot_data = []
+    for model in models:
+        model_label = f'{model.capitalize()} finetuned' if model != 'bmi' else 'BMI finetuned'
+        for task in tasks:
+            values = representational_shifts[model][task]
+            for v in values:
+                plot_data.append({
+                    'Task': parse_task_name(task),
+                    'Model': model_label,
+                    'Value': v,
+                })
+    df = pd.DataFrame(plot_data)
+
+    fig, ax = plt.subplots(figsize=(6, 5))
+    model_labels = [f'{m.capitalize()} finetuned' if m != 'bmi' else 'BMI finetuned' for m in models]
+    palette = dict(zip(model_labels, colors))
+
+    sns.violinplot(data=df, x='Task', y='Value', hue='Model', hue_order=model_labels,
+                   palette=palette, ax=ax, inner='box', linewidth=0.8, alpha=1.0, cut=0, width=0.5, legend=legend)
+
+    ax.set_ylim(bottom=0.0)
+    ax.set_xlabel('')
+    ax.set_ylabel('Distance to pretrained representation', fontsize=11)
+    ax.tick_params(axis='both', which='major', labelsize=13)
+    ax.spines['top'].set_color('black')
+    ax.spines['right'].set_color('black')
+    ax.spines['bottom'].set_color('black')
+    ax.spines['left'].set_color('black')
+    ax.spines['top'].set_linewidth(.8)
+    ax.spines['right'].set_linewidth(.8)
+    ax.spines['bottom'].set_linewidth(.8)
+    ax.spines['left'].set_linewidth(.8)
+    if legend:
+        ax.legend(title='Models')
     fig.patch.set_alpha(0.0)
     ax.grid(True, alpha=0.3)
     plt.tight_layout()

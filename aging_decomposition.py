@@ -16,8 +16,8 @@ from pathlib import Path
 import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
+from pandas import DataFrame
 from scipy import stats
-from matplotlib.patches import Patch
 from sklearn.decomposition import PCA, NMF
 from sklearn.preprocessing import StandardScaler
 from ants import image_read, image_list_to_matrix, matrix_to_images
@@ -178,34 +178,39 @@ def project_onto_components(imgs_matrix, components):
     return W_new
 
 
-def compare_nmf_groups(weights_group1, weights_group2,
+def compare_nmf_groups(weights_group1, weights_group2, 
                        group1_name='Group 1', group2_name='Group 2',
                        save_path=None):
+
     W1_norm = weights_group1 / weights_group1.sum(axis=1, keepdims=True)
     W2_norm = weights_group2 / weights_group2.sum(axis=1, keepdims=True)
 
-    fig, ax = plt.subplots(figsize=(7, 6))
-    box_data = [W1_norm[:, 0], W2_norm[:, 0],
-                W1_norm[:, 1], W2_norm[:, 1],
-                W1_norm[:, 2], W2_norm[:, 2]]
+    data_list = []
+    for i in range(3):
+        for val in W1_norm[:, i]:
+            data_list.append({'Component': f'Component {i+1}', 'Normalized Weight': val, 'Group': group1_name})
+        for val in W2_norm[:, i]:
+            data_list.append({'Component': f'Component {i+1}', 'Normalized Weight': val, 'Group': group2_name})
+    
+    df = DataFrame(data_list)
 
-    bp = ax.boxplot(box_data, positions=[1, 2, 4, 5, 7, 8],
-                    widths=0.6, patch_artist=True,
-                    boxprops=dict(linewidth=1.5),
-                    medianprops=dict(color='black', linewidth=2))
-
-    colors = ['steelblue', 'coral'] * 3
-    for patch, color in zip(bp['boxes'], colors):
-        patch.set_facecolor(color)
-        patch.set_alpha(0.8)
+    _, ax = plt.subplots(figsize=(7, 6))
+    
+    fig = sns.violinplot(data=df, x='Component', y='Normalized Weight', hue='Group',
+                   split=True, palette=['steelblue', 'coral'],
+                   cut=0, inner='quartile', width=0.5,
+                   linecolor='black', linewidth=1.0,
+                   ax=ax)
 
     ax.set_ylabel('Normalized Weight', fontsize=11)
+    ax.set_xlabel('')
     ax.tick_params(axis='y', labelsize=12)
-    ax.set_xticks([1.5, 4.5, 7.5])
-    ax.set_xticklabels(['Component 1', 'Component 2', 'Component 3'], fontsize=12)
+    ax.tick_params(axis='x', labelsize=12)
     ax.grid(axis='y', alpha=0.3)
+    ax.legend(loc='upper right', fontsize=12)
 
-    for i, pos in enumerate([1.5, 4.5, 7.5]):
+    components = ['Component 1', 'Component 2', 'Component 3']
+    for i, _ in enumerate(components):
         stat, p_value = stats.mannwhitneyu(W1_norm[:, i], W2_norm[:, i], alternative='two-sided')
         y_max = max(W1_norm[:, i].max(), W2_norm[:, i].max())
 
@@ -218,37 +223,37 @@ def compare_nmf_groups(weights_group1, weights_group2,
         else:
             sig = 'ns'
 
-        ax.text(pos, y_max * 1.01, sig, ha='center', fontsize=14)
-
-    legend_elements = [Patch(facecolor='steelblue', alpha=0.8, label=group1_name, edgecolor='black'),
-                       Patch(facecolor='coral', alpha=0.8, label=group2_name, edgecolor='black')]
-    ax.legend(handles=legend_elements, loc='upper right', fontsize=12)
+        ax.text(i, y_max * 1.02, sig, ha='center', fontsize=14)
 
     plt.tight_layout()
     if save_path:
-        save_path.mkdir(exist_ok=True, parents=True)
-        plt.savefig(save_path / 'nmf_boxplot_comparison.png', dpi=300, bbox_inches='tight', transparent=True)
-        print(f"Saved boxplot comparison to {save_path / 'nmf_boxplot_comparison.png'}")
+        plt.savefig(save_path / 'nmf_violinplot_comparison.png', dpi=300, bbox_inches='tight', transparent=True)
+    plt.show()
+
+    print("\n" + "="*70)
+    print("STATISTICAL COMPARISON SUMMARY")
+    print("="*70)
+
     for i in range(3):
-        print(f"\nComponent {i + 1}:")
+        print(f"\nComponent {i+1}:")
         print(f"  {group1_name}: mean={W1_norm[:, i].mean():.3f}, std={W1_norm[:, i].std():.3f}")
         print(f"  {group2_name}: mean={W2_norm[:, i].mean():.3f}, std={W2_norm[:, i].std():.3f}")
 
         stat, p_value = stats.mannwhitneyu(W1_norm[:, i], W2_norm[:, i], alternative='two-sided')
         cohens_d = (W1_norm[:, i].mean() - W2_norm[:, i].mean()) / \
-                   np.sqrt((W1_norm[:, i].std() ** 2 + W2_norm[:, i].std() ** 2) / 2)
+                   np.sqrt((W1_norm[:, i].std()**2 + W2_norm[:, i].std()**2) / 2)
         print(f"  Mann-Whitney U test: U={stat:.2f}, p={p_value:.4f}")
         print(f"  Effect size (Cohen's d): {cohens_d:.3f}")
 
+    print("="*70 + "\n")
     return fig
 
 
-def run_nmf_analysis(save_path, n_components=3):
+def run_nmf_analysis(save_path):
     mask_path = 'MNI152_T1_1mm_brain_mask.nii.gz'
-    nmf_decomposition(mask_path, save_path, n_components=n_components)
     ad_age_changes = Path('evaluation', 'diseased', 'test', 'age_invariant', 'e100', 'ad_rejuvenated')
     hc_age_changes = Path('evaluation', 'diseased', 'test', 'age_invariant', 'e100', 'hc_rejuvenated')
-    aging_components = np.load(Path('aging_decomposition', '3_components', 'nmf_neg_components.npy'))
+    aging_components = np.load(save_path / '3_components' / 'nmf_neg_components.npy')
 
     print('Reconstructing AD and HC age changes using NMF components...')
     ad_imgs, ad_mask = load_age_changes(ad_age_changes, mask_path)

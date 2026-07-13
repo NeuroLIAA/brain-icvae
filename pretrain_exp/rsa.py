@@ -1,7 +1,7 @@
 from rsatoolbox.data import Dataset
 from rsatoolbox.rdm.calc import calc_rdm
 import matplotlib.pyplot as plt
-from numpy import max, random, triu, corrcoef, sqrt, squeeze, ones_like
+from numpy import max, random, triu, corrcoef, sqrt, squeeze, ones_like, mean, array
 from torch import load
 from scripts.t1_dataset import T1Dataset
 from scripts.data_handler import balance_dataset
@@ -156,6 +156,38 @@ def _process_seed(seed, base_model_rdm, ft_rdm, pretrained_rdm, compare_with_pre
     result['tl'] = _correlate_rdms(resampled_base_model_rdm, resampled_ft_rdm, layers)
 
     return result
+
+
+def mean_distance_distribution_across_tasks(comparisons_dict):
+    first_task = list(comparisons_dict.keys())[0]
+    model_keys = list(comparisons_dict[first_task].keys())
+
+    distance_comparison = {}
+    for model in model_keys:
+        distance_comparison[model] = {}
+        for comparison in comparisons_dict[first_task][model].keys():
+            distance_comparison[model][comparison] = {}
+            for layer in comparisons_dict[first_task][model][comparison].keys():
+                # Stack the arrays from all tasks and compute element-wise mean
+                stacked = array([comparisons_dict[task][model][comparison][layer] 
+                            for task in comparisons_dict.keys()])
+                distance_comparison[model][comparison][layer] = list(1 - mean(stacked, axis=0))
+    return distance_comparison
+
+
+def compute_distance_dict(comparisons_dict):
+    distance_dict = {}
+    for task in comparisons_dict:
+        distance_dict[task] = {}
+        for model1 in comparisons_dict[task]:
+            distance_dict[task][model1] = {}
+            for model2 in comparisons_dict[task][model1]:
+                distance_dict[task][model1][model2] = {}
+                for layer in comparisons_dict[task][model1][model2]:
+                    correlations = comparisons_dict[task][model1][model2][layer]
+                    distances = [1 - corr for corr in correlations]
+                    distance_dict[task][model1][model2][layer] = distances
+    return distance_dict
 
 
 def compare_models(tasks, models, layers, rdms_path, n_iters, random_state, n_jobs=None):
